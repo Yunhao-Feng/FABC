@@ -1,30 +1,48 @@
-"""导包"""
-import torch
-import numpy as np
-import time
 import argparse
+import json
 import datetime
+import os
+import logging
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.autograd import Variable
+import math
+import csv
+from torchvision import transforms
 import yaml
+import time
 import visdom
-
-"""从其他文件中载入变量、函数和类"""
+import numpy as np
+import random
 import config
+import copy
+import os
+
 from image_helper import ImageHelper
 
 
 
-if __name__ == '__main__':  # 当前文件作为主程序时才会运行
-    print("Start Training")  # 开始训练  
-    np.random.seed(2024)  # 设定随机数种子
-    time_start_load_everything = time.time()  # 得到当前时间
-    parser = argparse.ArgumentParser(description='PPDL')  # 设定参数解析器
-    parser.add_argument('--params', dest='params')  # 添加参数
-    args = parser.parse_args()  # 解析参数
+os.environ['KMP_DUPLICATE_LTB_OK'] = 'True'
+logger = logging.getLogger("logger")
+
+vis = visdom.Visdom(port=8098)
+criterion = torch.nn.CrossEntropyLoss()
+torch.manual_seed(1)
+torch.cuda.manual_seed(1)
+random.seed(1)
+
+if __name__ == '__main__':
+    print('Start training')
+    np.random.seed(1)
+    time_start_load_everything = time.time()
+    parser = argparse.ArgumentParser(description='PPDL')
+    parser.add_argument('--params', dest='params')
+    args = parser.parse_args()
     with open(f'./{args.params}', 'r') as f:
-        params_loaded = yaml.load(f)  # 从yaml文件中解析参数
-    current_time = datetime.datetime.now().strftime('%b.%d_%H.%M.%S')  # 规整过的时间
-    
-    """选择哪个数据集开展实验"""
+        params_loaded = yaml.load(f)
+    current_time = datetime.datetime.now().strftime('%b.%d_%H.%M.%S')
     if params_loaded['type'] == config.TYPE_CIFAR:
         helper = ImageHelper(current_time=current_time, params=params_loaded,
                              name=params_loaded.get('name', 'cifar'))
@@ -39,9 +57,3 @@ if __name__ == '__main__':  # 当前文件作为主程序时才会运行
         helper.load_data()
     else:
         helper = None
-    
-    
-    
-    
-    
-    
