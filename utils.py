@@ -6,6 +6,32 @@ import random
 import torch.backends.cudnn as cudnn
 import torchvision.transforms as transforms
 import copy
+import warnings
+
+from models.wresnet import *
+from models.resnet import *
+
+
+def model_loader(model_name, n_classes=10):
+    if model_name=='wrn-16-1':
+        model = WideResNet(depth=16, num_classes=n_classes, widen_factor=1, dropRate=0)
+    elif model_name=='wrn-16-2':
+        model = WideResNet(depth=16, num_classes=n_classes, widen_factor=2, dropRate=0)
+    elif model_name=='wrn-40-1':
+        model = WideResNet(depth=40, num_classes=n_classes, widen_factor=1, dropRate=0)
+    elif model_name=='wrn-40-2':
+        model = WideResNet(depth=40, num_classes=n_classes, widen_factor=2, dropRate=0)
+    elif model_name == 'wrn-10-2':
+        model = WideResNet(depth=10, num_classes=n_classes, widen_factor=2, dropRate=0)
+    elif model_name == 'wrn-10-1':
+        model = WideResNet(depth=10, num_classes=n_classes, widen_factor=1, dropRate=0)
+    elif model_name =='resnet-34':
+        model = resnet(depth=32, num_classes=n_classes)
+    elif model_name == 'resnet-18':
+        model = resnet(depth=20, num_classes=n_classes)
+    else:
+        raise NotImplementedError
+    return model
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth'):
     if is_best:
@@ -102,3 +128,9 @@ def get_cls_num_list(traindata_cls_counts,dataset):
         cls_num_list.append(temp)
 
     return cls_num_list
+
+def filter_warning(message, category, filename, lineno, file=None, line=None):
+    if "Failed to load image Python extension" in str(message):
+        return None  # 返回 None 表示忽略这个警告
+    else:
+        return True  # 返回 True 表示处理这个警告

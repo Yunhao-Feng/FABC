@@ -14,12 +14,13 @@ from client import client_train
 
 from utils import *
 from dataset import generate_subset
+warnings.showwarning = filter_warning
 parser = argparse.ArgumentParser()
 current_directory = os.getcwd()
 
 parser.add_argument('--NAME', default='ADV', type=str)
 parser.add_argument('--dataset', default='cifar10', type=str)
-parser.add_argument('--network', default='cnn', type=str)
+parser.add_argument('--network', default='resnet-18', type=str)
 parser.add_argument('--depth', default=3, type=int)
 parser.add_argument('--gpu', default='0,1', type=str)
 parser.add_argument('--port', default="12355", type=str)
@@ -31,6 +32,7 @@ parser.add_argument('--learning_rate', default=0.1, type=float)
 parser.add_argument('--weight_decay', default=0.0002, type=float)
 parser.add_argument('--batch_size', default=32, type=float)
 parser.add_argument('--test_batch_size', default=32, type=float)
+parser.add_argument('--training', default='FAT', type=str)
 
 parser.add_argument('--local_epoch', default=1, type=int)
 parser.add_argument('--total_epoch', default=150, type=int)
@@ -52,15 +54,13 @@ if __name__ == "__main__":
     current_directory = os.path.abspath(os.getcwd())
     csv_path = f'{current_directory}/{args.network}-{args.depth}-{args.dataset}.csv'
     delete_file(csv_path)
-    header = [f'client_{i}_acc' for i in range(args.num_users)] + [f'client_{i}_rob' for i in range(args.num_users)] + ['cln_acc','rob_acc','bst_cln_acc','bst_rob_acc','epoch']
+    header = ['cln_acc','rob_acc','bst_cln_acc','bst_rob_acc','epoch']
     df = pd.DataFrame(columns=header)
     df.to_csv(csv_path, index=False)
     
     torch.cuda.set_device(global_rank)
-    net = models.resnet18(pretrained=False)
-    # 替换最后一层全连接层以适配CIFAR-10数据集
-    num_ftrs = net.fc.in_features
-    net.fc = nn.Linear(num_ftrs, 10)
+    num_class = 10 if args.dataset != 'cifar100'else 100
+    net = model_loader(model_name=args.network, n_classes=10)
     net = net.cuda() 
     # net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
     # net = net.to(memory_format=torch.channels_last).cuda()
@@ -135,3 +135,9 @@ if __name__ == "__main__":
             'state_dict': net.state_dict(),
             'epoch': epoch,
         }, rob_acc > bst_rob_acc, nbest_asr_ckpt)
+        bst_cln_acc = max(bst_cln_acc, cln_acc)
+        bst_rob_acc = max(bst_rob_acc, rob_acc)
+        row_data = [cln_acc, rob_acc, bst_cln_acc, bst_rob_acc, epoch]
+        new_row = pd.DataFrame([row_data], columns = header)
+        new_row.to_csv(csv_path, mode='a', header=False, index=False)
+        
