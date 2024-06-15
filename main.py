@@ -11,6 +11,7 @@ warnings.filterwarnings("ignore", category=UserWarning)
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from client import client_train
+from dataloader import get_test_loader
 
 from utils import *
 from dataset import generate_subset
@@ -20,7 +21,7 @@ current_directory = os.getcwd()
 
 parser.add_argument('--NAME', default='ADV', type=str)
 parser.add_argument('--dataset', default='cifar10', type=str)
-parser.add_argument('--network', default='resnet-18', type=str)
+parser.add_argument('--network', default='resnet-34', type=str)
 parser.add_argument('--depth', default=3, type=int)
 parser.add_argument('--gpu', default='0,1', type=str)
 parser.add_argument('--port', default="12355", type=str)
@@ -28,8 +29,7 @@ parser.add_argument('--load', default='False', type=str2bool)
 parser.add_argument('--partition', default="dirichlet", type=str)
 parser.add_argument('--beta', default=0.1, type=float)
 
-parser.add_argument('--learning_rate', default=0.1, type=float)
-parser.add_argument('--weight_decay', default=0.0002, type=float)
+parser.add_argument('--learning_rate', default=0.01, type=float)
 parser.add_argument('--batch_size', default=32, type=float)
 parser.add_argument('--test_batch_size', default=32, type=float)
 parser.add_argument('--training', default='FAT', type=str)
@@ -41,6 +41,17 @@ parser.add_argument('--eps', default=0.03, type=float)
 parser.add_argument('--steps', default=10, type=int)
 parser.add_argument('--num_users', default=5, type=int)
 parser.add_argument('--root', default=current_directory, type=str)
+
+# backdoor attacks
+parser.add_argument('--backdoor', type=str2bool, default='True')
+parser.add_argument('--inject_portion', type=float, default=0.1, help='ratio of backdoor samples')
+parser.add_argument('--target_label', type=int, default=0, help='class of target label')
+parser.add_argument('--trig_w', type=int, default=3, help='width of trigger pattern')
+parser.add_argument('--trig_h', type=int, default=3, help='height of trigger pattern')
+parser.add_argument('--trigger_type', type=str, default='gridTrigger', help='type of backdoor trigger')
+parser.add_argument('--target_type', type=str, default='all2one', help='type of backdoor label')
+
+
 args = parser.parse_args()
 
 os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -54,7 +65,7 @@ if __name__ == "__main__":
     current_directory = os.path.abspath(os.getcwd())
     csv_path = f'{current_directory}/{args.network}-{args.depth}-{args.dataset}.csv'
     delete_file(csv_path)
-    header = ['cln_acc','rob_acc','bst_cln_acc','bst_rob_acc','epoch']
+    header = ['cln_acc','rob_acc','backdoor_acc','bst_cln_acc','bst_rob_acc','epoch']
     df = pd.DataFrame(columns=header)
     df.to_csv(csv_path, index=False)
     
@@ -81,7 +92,8 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     
     subdatasets, testset, cls_num_list = generate_subset(args.dataset, args.num_users, args.partition, args.beta, root=f'{current_directory}/data')
-    test_loader = DataLoader(testset, batch_size=batch_size, shuffle=True)
+    test_clean_loader, test_bad_loader = get_test_loader(args=args, testset=testset)
+    # test_loader = DataLoader(testset, batch_size=batch_size, shuffle=True)
     
     for epoch in tqdm(range(total_epoch)):
         mp.spawn(
@@ -101,7 +113,7 @@ if __name__ == "__main__":
         test_loss = 0
         correct = 0
         total = 0
-        for _,  (inputs, targets) in enumerate(test_loader):
+        for _,  (inputs, targets, ind) in enumerate(test_clean_loader):
             inputs, targets = inputs.cuda(), targets.cuda()
             outputs = net(inputs)
             loss = F.cross_entropy(outputs, targets)
@@ -113,7 +125,10 @@ if __name__ == "__main__":
         cln_acc = 100. * correct / total
         attack = torchattacks.PGD(net, eps=0.03, alpha=2/255, steps=20)
         
-        for _,  (inputs, targets) in enumerate(test_loader):
+        test_loss = 0
+        correct = 0
+        total = 0  
+        for _,  (inputs, targets, ind) in enumerate(test_clean_loader):
             inputs = attack(inputs, targets)
             inputs, targets = inputs.cuda(), targets.cuda()
 
@@ -125,7 +140,24 @@ if __name__ == "__main__":
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
         rob_acc = 100. * correct / total
-        print("Epoch:{},\t cln_acc:{}, \t rob_acc:{}".format(epoch, cln_acc, rob_acc))
+        
+        
+        test_loss = 0
+        correct = 0
+        total = 0  
+        for _,  (inputs, targets, ind) in enumerate(test_bad_loader):
+            inputs, targets = inputs.cuda(), targets.cuda()
+
+            outputs = net(inputs)
+            loss = F.cross_entropy(outputs, targets)
+
+            test_loss += loss.item()
+            _, predicted = outputs.max(1)
+            total += targets.size(0)
+            correct += predicted.eq(targets).sum().item()
+        backdoor_acc = 100. * correct / total
+        
+        print("Epoch:{},\t cln_acc:{}, \t rob_acc:{}, \t backdoor_acc:{}".format(epoch, cln_acc, rob_acc, backdoor_acc))
         save_checkpoint({
             'state_dict': net.state_dict(),
             'epoch': epoch,
@@ -137,7 +169,7 @@ if __name__ == "__main__":
         }, rob_acc > bst_rob_acc, nbest_asr_ckpt)
         bst_cln_acc = max(bst_cln_acc, cln_acc)
         bst_rob_acc = max(bst_rob_acc, rob_acc)
-        row_data = [cln_acc, rob_acc, bst_cln_acc, bst_rob_acc, epoch]
+        row_data = [cln_acc, rob_acc, backdoor_acc, bst_cln_acc, bst_rob_acc, epoch]
         new_row = pd.DataFrame([row_data], columns = header)
         new_row.to_csv(csv_path, mode='a', header=False, index=False)
         

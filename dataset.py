@@ -26,23 +26,20 @@ current_directory = os.getcwd()
 
 def generate_subset(dataset, n_user, partition, beta, root=f'{current_directory}/data'):
     checkmade_dir(root,delete=False)
-    transform = transforms.Compose([
-        transforms.ToTensor() # 将图像转换为Tensor
-    ])
     if dataset == 'cifar10':
-        trainset = torchvision.datasets.CIFAR10(root=root, train=True, download=True, transform=transform)
-        testset = torchvision.datasets.CIFAR10(root=root, train=False, download=True, transform=transform)
+        trainset = torchvision.datasets.CIFAR10(root=root, train=True, download=True)
+        testset = torchvision.datasets.CIFAR10(root=root, train=False, download=True)
         y_train = trainset.targets
         
     elif dataset == 'cifar100':
-        trainset = torchvision.datasets.CIFAR100(root=root, train=True, download=True, transform=transform)
-        testset = torchvision.datasets.CIFAR100(root=root, train=False, download=True, transform=transform)
+        trainset = torchvision.datasets.CIFAR100(root=root, train=True, download=True)
+        testset = torchvision.datasets.CIFAR100(root=root, train=False, download=True)
         y_train = trainset.targets
         
 
     elif dataset == 'svhn':
-        trainset = torchvision.datasets.SVHN(root=root, split='train', download=True, transform=transform)
-        testset = torchvision.datasets.SVHN(root=root, split='test', download=True, transform=transform)
+        trainset = torchvision.datasets.SVHN(root=root, split='train', download=True)
+        testset = torchvision.datasets.SVHN(root=root, split='test', download=True)
         y_train = trainset.labels
 
     elif dataset == 'tiny':
