@@ -50,6 +50,8 @@ parser.add_argument('--trig_w', type=int, default=3, help='width of trigger patt
 parser.add_argument('--trig_h', type=int, default=3, help='height of trigger pattern')
 parser.add_argument('--trigger_type', type=str, default='gridTrigger', help='type of backdoor trigger')
 parser.add_argument('--target_type', type=str, default='all2one', help='type of backdoor label')
+parser.add_argument('--weighted_example', type=str2bool, default='True')
+parser.add_argument('--AT', type=str2bool, default='False')
 parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
 
 

@@ -3,7 +3,7 @@ import torch
 import torchvision.models as models
 import torchattacks
 from torch.utils.data import DataLoader
-from utils import model_loader, DisenEstimator
+from utils import model_loader, DisenEstimator, maxMarginLoss
 import torch.optim as optim
 import torch.nn as nn
 from torch.optim.adam import Adam
@@ -35,8 +35,11 @@ def train_step_backdoor(train_loader, model_backdoor, optimizer, criterion, AT=F
         return model_backdoor
     
 
-def client_clean_step(model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer, AT=False):
-    criterion1 = nn.CrossEntropyLoss(reduction='none')
+def client_clean_step(args, model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer, AT=False, cls_num_list = None):
+    if args.weighted_example:
+        criterion1 = maxMarginLoss(cls_num_list=cls_num_list, max_m=0.8, s=10, weight=None).cuda()
+    else:
+        criterion1 = nn.CrossEntropyLoss(reduction='none')
     model_backdoor.eval()
     model_clean.train()
     for img, target, ind in client_data_loader:
@@ -86,7 +89,18 @@ def client_clean_step(model_clean, model_backdoor, client_data_loader, disen_est
     
     return model_clean, model_backdoor, disen_estimator
     
-        
+def get_cls_num_list(traindata_cls_counts,dataset):
+    cls_num_list = []
+    num_class = 10 if dataset !='cifar100' else 100
+    if dataset == 'tiny':
+        num_class = 200
+    for key, val in traindata_cls_counts.items():
+        temp = [0] * num_class  #
+        for key_1, val_1 in val.items():
+            temp[key_1] = val_1
+        cls_num_list.append(temp)
+
+    return cls_num_list    
     
 
 
@@ -99,7 +113,7 @@ def client_train(user_id, args, epoch):
     # client_loader = DataLoader(dataset=dataset, batch_size=args.batch_size, shuffle=True)
     client_train_clean_loader, client_train_bad_loader = get_train_loader(args=args, trainset=dataset)
     if args.backdoor and user_id==0:
-            client_data_loader = client_train_bad_loader
+        client_data_loader = client_train_bad_loader
     else:
         client_data_loader = client_train_clean_loader
     
@@ -117,7 +131,13 @@ def client_train(user_id, args, epoch):
                                     weight_decay=args.weight_decay, nesterov=True)
         optimizer_backdoor = torch.optim.SGD(model_backdoor.parameters(), lr=args.learning_rate, momentum=0.9,
                                         weight_decay=args.weight_decay, nesterov=True)
-        criterion = nn.CrossEntropyLoss().cuda()
+        with open(f'{args.root}/temp/temp.pkl', 'rb') as pickle_file:
+                loaded_dict = pickle.load(pickle_file)
+        cls_num_list = get_cls_num_list(loaded_dict,args.dataset)[user_id]
+        if args.weighted_example:
+            criterion = maxMarginLoss(cls_num_list=cls_num_list, max_m=0.8, s=10, weight=None).cuda()
+        else:
+            criterion = nn.CrossEntropyLoss().cuda()
         
         model_backdoor_state_dict = torch.load('modelsave/backdoor.pth')
         model_clean_state_dict = torch.load('modelsave/clean.pth')
@@ -130,11 +150,11 @@ def client_train(user_id, args, epoch):
         disen_estimator.load_state_dict(disen_estimator_state_dict)
         
         if epoch < 5:
-            model_backdoor = train_step_backdoor(client_train_bad_loader, model_backdoor, optimizer_backdoor, criterion)
+            model_backdoor = train_step_backdoor(client_train_bad_loader, model_backdoor, optimizer_backdoor, criterion, AT=args.AT)
             torch.save(model_backdoor.state_dict(), f'modelsave/subbackdoor_{user_id}.pth')
         else:
             adv_scheduler.step()
-            model_clean, model_backdoor, disen_estimator = client_clean_step(model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer)
+            model_clean, model_backdoor, disen_estimator = client_clean_step(args, model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer, AT=args.AT, cls_num_list=cls_num_list)
             torch.save(model_clean.state_dict(), f'modelsave/subclean_{user_id}.pth')
             torch.save(disen_estimator.state_dict(), f'modelsave/subdisen_{user_id}.pth')
                     
