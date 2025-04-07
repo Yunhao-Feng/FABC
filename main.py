@@ -21,7 +21,7 @@ current_directory = os.getcwd()
 
 parser.add_argument('--NAME', default='ADV', type=str)
 parser.add_argument('--dataset', default='cifar10', type=str)
-parser.add_argument('--network', default='resnet-34', type=str)
+parser.add_argument('--network', default='wrn-16-1', type=str)
 parser.add_argument('--depth', default=3, type=int)
 parser.add_argument('--gpu', default='0,1', type=str)
 parser.add_argument('--port', default="12355", type=str)
@@ -32,7 +32,7 @@ parser.add_argument('--beta', default=0.1, type=float)
 parser.add_argument('--learning_rate', default=0.01, type=float)
 parser.add_argument('--batch_size', default=32, type=float)
 parser.add_argument('--test_batch_size', default=32, type=float)
-parser.add_argument('--training', default='FAT', type=str)
+parser.add_argument('--training', default='FCBD', type=str)
 
 parser.add_argument('--local_epoch', default=1, type=int)
 parser.add_argument('--total_epoch', default=150, type=int)
@@ -50,6 +50,7 @@ parser.add_argument('--trig_w', type=int, default=3, help='width of trigger patt
 parser.add_argument('--trig_h', type=int, default=3, help='height of trigger pattern')
 parser.add_argument('--trigger_type', type=str, default='gridTrigger', help='type of backdoor trigger')
 parser.add_argument('--target_type', type=str, default='all2one', help='type of backdoor label')
+parser.add_argument('--weight_decay', type=float, default=1e-4, help='weight decay')
 
 
 args = parser.parse_args()
@@ -71,17 +72,31 @@ if __name__ == "__main__":
     
     torch.cuda.set_device(global_rank)
     num_class = 10 if args.dataset != 'cifar100'else 100
-    net = model_loader(model_name=args.network, n_classes=10)
-    net = net.cuda() 
-    # net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
-    # net = net.to(memory_format=torch.channels_last).cuda()
     
-    if args.load:
-        net_state_dict = torch.load(f"{args.root}/modelsave/n_acc.pth")['state_dict']
+    if args.training == "FCBD":
+        model_clean = model_loader(model_name=args.network, n_classes=num_class ).cuda()
+        model_backdoor = model_loader(model_name=args.network, n_classes=num_class ).cuda()
+        hidden_dim = model_clean.nChannels
+        disen_estimator = DisenEstimator(hidden_dim, hidden_dim, 0.5).cuda()
+        
+        torch.save(model_clean.state_dict(),"modelsave/clean.pth")
+        torch.save(model_backdoor.state_dict(),"modelsave/backdoor.pth")
+        torch.save(disen_estimator.state_dict(),"modelsave/disen.pth")
+        
     else:
-        net_state_dict = net.state_dict()
     
-    torch.save(net_state_dict,"modelsave/n.pth")
+        net = model_loader(model_name=args.network, n_classes=10)
+        net = net.cuda() 
+        # net = torch.nn.SyncBatchNorm.convert_sync_batchnorm(net)
+        # net = net.to(memory_format=torch.channels_last).cuda()
+        
+        if args.load:
+            net_state_dict = torch.load(f"{args.root}/modelsave/n_acc.pth")['state_dict']
+        else:
+            net_state_dict = net.state_dict()
+        
+        torch.save(net_state_dict,"modelsave/n.pth")
+    
     bst_cln_acc = -1
     bst_rob_acc = -1
     nbest_acc_ckpt = f'modelsave/n_acc-{args.network}-{args.depth}-{args.dataset}.pth'
@@ -103,12 +118,32 @@ if __name__ == "__main__":
             join=True
         )
         print(f"{epoch} Training is finished!")
-        local_net_wegihts = [torch.load(f"modelsave/subnet_{user_id}.pth") for user_id in range(num_users)]
-        net_state_dict = average_weights(local_net_wegihts)
-        torch.save(net_state_dict,"modelsave/n.pth")
-        net.load_state_dict(net_state_dict)
-        net = net.cuda()
-        net.eval()
+        if args.training == "FCBD":
+            if epoch < 5:
+                local_net_wegihts = [torch.load(f"modelsave/subbackdoor_{user_id}.pth") for user_id in range(num_users)]
+                torch.save(average_weights(local_net_wegihts),"modelsave/backdoor.pth")
+                continue
+            
+            local_net_wegihts = [torch.load(f"modelsave/subclean_{user_id}.pth") for user_id in range(num_users)]
+            torch.save(average_weights(local_net_wegihts),"modelsave/clean.pth")
+            
+            local_net_wegihts = [torch.load(f"modelsave/subdisen_{user_id}.pth") for user_id in range(num_users)]
+            torch.save(average_weights(local_net_wegihts),"modelsave/disen.pth")
+            
+            model_clean.load_state_dict(torch.load('modelsave/clean.pth'))
+            net = model_clean.cuda()
+            net.eval()
+            
+        else:
+            
+            local_net_wegihts = [torch.load(f"modelsave/subnet_{user_id}.pth") for user_id in range(num_users)]
+            net_state_dict = average_weights(local_net_wegihts)
+            torch.save(net_state_dict,"modelsave/n.pth")
+        
+        
+            net.load_state_dict(net_state_dict)
+            net = net.cuda()
+            net.eval()
         
         test_loss = 0
         correct = 0
