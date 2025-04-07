@@ -121,7 +121,10 @@ def client_train(user_id, args, epoch):
         
         model_backdoor_state_dict = torch.load('modelsave/backdoor.pth')
         model_clean_state_dict = torch.load('modelsave/clean.pth')
-        disen_estimator_state_dict = torch.load('modelsave/disen.pth')
+        try:
+            disen_estimator_state_dict = torch.load('modelsave/subdisen_{user_id}.pth')
+        except:
+            disen_estimator_state_dict = torch.load('modelsave/disen.pth')
         model_backdoor.load_state_dict(model_backdoor_state_dict)
         model_clean.load_state_dict(model_clean_state_dict)
         disen_estimator.load_state_dict(disen_estimator_state_dict)
