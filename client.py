@@ -12,14 +12,21 @@ from torch.optim.lr_scheduler import StepLR
 
 
 
-def train_step_backdoor(train_loader, model_backdoor, optimizer, criterion):
+def train_step_backdoor(train_loader, model_backdoor, optimizer, criterion, AT=False):
     model_backdoor.train()
 
     for idx, (img, target, _) in enumerate(train_loader, start=1):
         img, target = img.cuda(), target.cuda()
 
-        output = model_backdoor(img)
-        loss = criterion(output, target)
+        if AT:
+            # Adversarial training
+            pgd_attack = torchattacks.PGD(model_backdoor, eps=0.03, alpha=2 / 255, steps=10)
+            adv_img = pgd_attack(img, target)
+            output = model_backdoor(adv_img)
+            loss = criterion(output, target)
+        else:
+            output = model_backdoor(img)
+            loss = criterion(output, target)
 
 
         optimizer.zero_grad()
@@ -28,13 +35,16 @@ def train_step_backdoor(train_loader, model_backdoor, optimizer, criterion):
         return model_backdoor
     
 
-def client_clean_step(model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer):
+def client_clean_step(model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer, AT=False):
     criterion1 = nn.CrossEntropyLoss(reduction='none')
     model_backdoor.eval()
     model_clean.train()
     for img, target, ind in client_data_loader:
-        img = img.cuda()
-    
+        img, target = img.cuda(), target.cuda()
+        if AT:
+            # Adversarial training
+            pgd_attack = torchattacks.PGD(model_clean, eps=0.03, alpha=2 / 255, steps=10)
+            img = pgd_attack(img, target)
         output1, z_hidden = model_clean(img, True)
         with torch.no_grad():
             output2, r_hidden = model_backdoor(img, True)
@@ -50,6 +60,11 @@ def client_clean_step(model_clean, model_backdoor, client_data_loader, disen_est
     for idx, (img, target, indicator) in enumerate(client_data_loader):
         img = img.cuda()
         target = target.cuda()
+        if AT:
+            # Adversarial training
+            pgd_attack = torchattacks.PGD(model_clean, eps=0.03, alpha=2 / 255, steps=10)
+            img = pgd_attack(img, target)
+        
         output1, z_hidden = model_clean(img, True)
         with torch.no_grad():
             output2, r_hidden = model_backdoor(img, True)
