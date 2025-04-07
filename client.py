@@ -37,7 +37,7 @@ def train_step_backdoor(train_loader, model_backdoor, optimizer, criterion, AT=F
 
 def client_clean_step(args, model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer, AT=False, cls_num_list = None):
     if args.weighted_example:
-        criterion1 = maxMarginLoss(cls_num_list=cls_num_list, max_m=0.8, s=10, weight=None).cuda()
+        criterion1 = maxMarginLoss(cls_num_list=cls_num_list, max_m=0.8, s=10, weight=None, reduction="none").cuda()
     else:
         criterion1 = nn.CrossEntropyLoss(reduction='none')
     model_backdoor.eval()

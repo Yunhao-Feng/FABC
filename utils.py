@@ -14,17 +14,18 @@ from models.resnet import *
 
 class maxMarginLoss(nn.Module):
 
-    def __init__(self, cls_num_list, max_m=0.5, weight=None, s=30):
+    def __init__(self, cls_num_list, max_m=0.5, weight=None, s=30, reduction="mean"):
         super(maxMarginLoss, self).__init__()
         m_list = torch.FloatTensor(cls_num_list).cuda()
         self.m_list = m_list
         assert s > 0
         self.s = s
         self.weight = weight
+        self.reduction = reduction
 
     def forward(self, x, target):
         output = x + 0.1 * torch.log(self.m_list + 1e-7)
-        return F.cross_entropy(self.s * output, target, weight=self.weight, reduction="mean")
+        return F.cross_entropy(self.s * output, target, weight=self.weight, reduction=self.reduction)
 
 def model_loader(model_name, n_classes=10):
     if model_name=='wrn-16-1':
