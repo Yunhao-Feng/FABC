@@ -32,7 +32,7 @@ def train_step_backdoor(train_loader, model_backdoor, optimizer, criterion, AT=F
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        return model_backdoor
+    return model_backdoor
     
 
 def client_clean_step(args, model_clean, model_backdoor, client_data_loader, disen_estimator, optimizer, adv_optimizer, AT=False, cls_num_list = None):

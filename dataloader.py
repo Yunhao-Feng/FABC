@@ -217,7 +217,7 @@ class DatasetBD(Dataset):
         return label_new
     
     def selectTrigger(self, img, width, height, distance, trig_w, trig_h, triggerType):
-        assert triggerType in ['squareTrigger', 'gridTrigger', 'fourCornerTrigger', 'randomPixelTrigger','signalTrigger', 'trojanTrigger', 'dynamic']
+        assert triggerType in ['squareTrigger', 'gridTrigger', 'fourCornerTrigger', 'randomPixelTrigger','signalTrigger', 'trojanTrigger', 'dynamic', 'blendedTrigger', 'wanetTrigger']
         if triggerType == 'squareTrigger':
             img = self._squareTrigger(img, width, height, distance, trig_w, trig_h)
             
@@ -235,6 +235,12 @@ class DatasetBD(Dataset):
 
         elif triggerType == 'trojanTrigger':
             img = self._trojanTrigger(img, width, height, distance, trig_w, trig_h)
+
+        elif triggerType == 'blendedTrigger':
+            img = self._blendedTrigger(img, width, height)
+            
+        elif triggerType == 'wanetTrigger':
+            img = self._wanetTrigger(img, width, height)
 
         else:
             raise NotImplementedError
@@ -370,3 +376,80 @@ class DatasetBD(Dataset):
         img_ = np.clip((img + trg).astype('uint8'), 0, 255)
 
         return img_
+    
+
+    def _blendedTrigger(self, img, width, height, alpha: float = 0.2):
+        alpha = float(getattr(self, "blend_alpha", alpha))
+
+        x = img.astype(np.float32)
+        if x.max() <= 1.0:
+            x = x * 255.0
+
+        if getattr(self, "blend_trigger", None) is None:
+            seed = int(getattr(self, "seed", 0))
+            rng = np.random.default_rng(seed)
+
+            t = rng.integers(0, 256, size=img.shape, dtype=np.uint8)
+            self.blend_trigger = t
+        else:
+            t = self.blend_trigger
+
+        if t.shape != img.shape:
+            t_img = Image.fromarray(t).convert("RGB")
+            t_img = t_img.resize((img.shape[1], img.shape[0]), resample=Image.BILINEAR)
+            t = np.array(t_img, dtype=np.uint8)
+            self.blend_trigger = t  
+
+        t = t.astype(np.float32)
+        if t.max() <= 1.0:
+            t = t * 255.0
+
+        x_p = (1.0 - alpha) * x + alpha * t
+        x_p = np.clip(x_p, 0, 255).astype(np.uint8)
+        return x_p
+    
+    def _get_wanet_grid(self, H: int, W: int) -> torch.Tensor:
+        if getattr(self, "wanet_grid", None) is not None:
+            g = self.wanet_grid
+            if tuple(g.shape) == (1, H, W, 2):
+                return g
+
+        s = float(getattr(self, "wanet_s", 0.5))   # 扭曲强度（建议 0.3~1.0 之间小幅调）
+        k = int(getattr(self, "wanet_k", 4))       # 平滑半径（越大越平滑）
+        seed = int(getattr(self, "seed", 0))
+
+        xs = torch.linspace(-1, 1, W)
+        ys = torch.linspace(-1, 1, H)
+        yy, xx = torch.meshgrid(ys, xs, indexing="ij")  # [H,W]
+        base_grid = torch.stack([xx, yy], dim=-1).unsqueeze(0)  # [1,H,W,2]
+
+        gen = torch.Generator(device="cpu")
+        gen.manual_seed(seed)
+
+        noise = torch.rand((1, 2, H, W), generator=gen) * 2 - 1  # [-1,1]
+        noise = F.avg_pool2d(noise, kernel_size=2 * k + 1, stride=1, padding=k)
+        noise = noise / (noise.abs().max() + 1e-8)
+        noise = noise.permute(0, 2, 3, 1)  # [1,H,W,2]
+        grid = torch.clamp(base_grid + s * noise, -1, 1).contiguous()  # [1,H,W,2]
+        self.wanet_grid = grid
+        return grid
+
+
+    def _wanetTrigger(self, img: np.ndarray, width: int, height: int) -> np.ndarray:
+
+        # img: HWC uint8
+        H, W = img.shape[0], img.shape[1]
+        grid = self._get_wanet_grid(H, W)  # [1,H,W,2]
+
+        x = torch.from_numpy(img).float() / 255.0         # [H,W,C]
+        x = x.permute(2, 0, 1).unsqueeze(0)               # [1,C,H,W]
+
+        y = F.grid_sample(
+            x, grid,
+            mode="bilinear",
+            padding_mode="reflection",
+            align_corners=True
+        )
+
+        y = (y.squeeze(0).permute(1, 2, 0).clamp(0, 1) * 255.0).byte().cpu().numpy()
+        return y
